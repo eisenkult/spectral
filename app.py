@@ -71,7 +71,7 @@ class BrowserScreen(ModalScreen):
     def _refresh(self) -> None:
         self._entries = self._build_entries()
         self._cursor = 0
-        self._render()
+        self._update_display()
 
     def _build_entries(self) -> list[Path | None]:
         entries: list[Path | None] = []
@@ -91,7 +91,7 @@ class BrowserScreen(ModalScreen):
             pass
         return entries
 
-    def _render(self) -> None:
+    def _update_display(self) -> None:
         self.query_one("#browser_path", Static).update(f" {self._dir}")
 
         list_widget = self.query_one("#browser_list", Static)
@@ -131,11 +131,11 @@ class BrowserScreen(ModalScreen):
         if key in ("up", "k"):
             if self._cursor > 0:
                 self._cursor -= 1
-                self._render()
+                self._update_display()
         elif key in ("down", "j"):
             if self._cursor < n - 1:
                 self._cursor += 1
-                self._render()
+                self._update_display()
         elif key == "enter":
             if not self._entries:
                 return
