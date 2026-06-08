@@ -43,8 +43,9 @@ class PlaylistPane(Static):
 
         text = Text()
         for i, track in enumerate(playlist.tracks):
-            is_selected = i == playlist.index
-            prefix = "▶ " if is_selected else "  "
+            is_playing = i == playlist.index
+            is_cursor = i == playlist.cursor
+            prefix = "▶ " if is_playing else "  "
             line = f"{prefix}{track.title}"
             if track.artist:
                 line += f" — {track.artist}"
@@ -52,7 +53,7 @@ class PlaylistPane(Static):
             # Pad title to leave room for duration
             line = line[:50] + f"  {duration_str}"
 
-            if is_selected:
+            if is_cursor:
                 style = Style(color=theme.bg, bgcolor=theme.accent, bold=True)
             else:
                 style = Style(color=theme.fg)
@@ -244,14 +245,13 @@ class SpectralApp(App):
         viz_pane = self.query_one(VisualizerPane)
 
         if key in ("up", "k"):
-            self._playlist.select(max(0, self._playlist.index - 1))
+            self._playlist.select(self._playlist.cursor - 1)
             playlist_pane.refresh()
         elif key in ("down", "j"):
-            self._playlist.select(
-                min(len(self._playlist.tracks) - 1, self._playlist.index + 1)
-            )
+            self._playlist.select(self._playlist.cursor + 1)
             playlist_pane.refresh()
         elif key == "enter":
+            self._playlist.play_cursor()
             self._play_current()
         elif key == "space":
             self._engine.toggle()
