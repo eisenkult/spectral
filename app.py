@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import string
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -17,6 +19,22 @@ from dsp import compute_spectrum, smooth
 from playlist import Playlist
 from themes import THEMES, Theme
 import visualizers as vis
+
+
+def _list_drives() -> list[Path]:
+    """Return mounted drive roots on Windows; empty list elsewhere."""
+    if sys.platform != "win32":
+        return []
+    try:
+        import ctypes
+        bitmask = ctypes.windll.kernel32.GetLogicalDrives()
+        return [
+            Path(f"{c}:\\")
+            for i, c in enumerate(string.ascii_uppercase)
+            if bitmask & (1 << i)
+        ]
+    except Exception:
+        return [Path(f"{c}:\\") for c in string.ascii_uppercase if Path(f"{c}:\\").exists()]
 
 
 class BrowserScreen(ModalScreen):
@@ -55,6 +73,7 @@ class BrowserScreen(ModalScreen):
         self._dir = Path(start_dir).resolve() if start_dir else Path.home()
         self._entries: list[Path | None] = []
         self._cursor = 0
+        self._showing_drives = False
 
     def compose(self) -> ComposeResult:
         with Vertical(id="browser"):
@@ -74,8 +93,12 @@ class BrowserScreen(ModalScreen):
         self._update_display()
 
     def _build_entries(self) -> list[Path | None]:
+        if self._showing_drives:
+            return _list_drives()
         entries: list[Path | None] = []
-        if self._dir.parent != self._dir:
+        at_root = self._dir.parent == self._dir
+        # On Windows show ".." even at drive root so we can reach the drives list
+        if not at_root or sys.platform == "win32":
             entries.append(None)  # ".." go-up sentinel
         try:
             items = sorted(
@@ -92,7 +115,8 @@ class BrowserScreen(ModalScreen):
         return entries
 
     def _update_display(self) -> None:
-        self.query_one("#browser_path", Static).update(f" {self._dir}")
+        path_label = " [Drives]" if self._showing_drives else f" {self._dir}"
+        self.query_one("#browser_path", Static).update(path_label)
 
         list_widget = self.query_one("#browser_list", Static)
         h = list_widget.size.height or 20
@@ -108,6 +132,8 @@ class BrowserScreen(ModalScreen):
                 is_cursor = i == self._cursor
                 if entry is None:
                     label, color = "../", "#888888"
+                elif self._showing_drives:
+                    label, color = str(entry), "#bb99ff"
                 elif entry.is_dir():
                     label, color = f"{entry.name}/", "#bb99ff"
                 else:
@@ -121,9 +147,23 @@ class BrowserScreen(ModalScreen):
                     text.append(f"  {label}\n", style=Style(color=color))
 
         list_widget.update(text)
-        self.query_one("#browser_hint", Static).update(
-            "  [↑↓] move  [Enter] open  [o] use this folder  [←/Bksp] up  [Esc] cancel"
+        hint = (
+            "  [↑↓] move  [Enter] open drive  [Esc] cancel"
+            if self._showing_drives
+            else "  [↑↓] move  [Enter] open  [o] use this folder  [←/Bksp] up  [Esc] cancel"
         )
+        self.query_one("#browser_hint", Static).update(hint)
+
+    def _go_up(self) -> None:
+        if self._showing_drives:
+            return
+        at_root = self._dir.parent == self._dir
+        if at_root and sys.platform == "win32":
+            self._showing_drives = True
+            self._refresh()
+        elif not at_root:
+            self._dir = self._dir.parent
+            self._refresh()
 
     def on_key(self, event) -> None:
         key = event.key
@@ -141,19 +181,18 @@ class BrowserScreen(ModalScreen):
                 return
             entry = self._entries[self._cursor]
             if entry is None:
-                self._dir = self._dir.parent
-                self._refresh()
-            elif entry.is_dir():
+                self._go_up()
+            elif self._showing_drives or entry.is_dir():
                 self._dir = entry
+                self._showing_drives = False
                 self._refresh()
             else:
                 self.dismiss(("m3u", str(entry)))
         elif key in ("left", "backspace"):
-            if self._dir.parent != self._dir:
-                self._dir = self._dir.parent
-                self._refresh()
+            self._go_up()
         elif key == "o":
-            self.dismiss(("folder", str(self._dir)))
+            if not self._showing_drives:
+                self.dismiss(("folder", str(self._dir)))
         elif key == "escape":
             self.dismiss(None)
 
