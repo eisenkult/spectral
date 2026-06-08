@@ -16,7 +16,8 @@ class Track:
 @dataclass
 class Playlist:
     tracks: list[Track] = field(default_factory=list)
-    index: int = 0
+    index: int = 0   # currently playing track
+    cursor: int = 0  # UI selection / navigation position
 
     def scan(self, folder: str) -> None:
         folder_path = Path(folder)
@@ -26,6 +27,7 @@ class Playlist:
             title, artist, duration = _read_tags(str(path))
             self.tracks.append(Track(str(path), title, artist, duration))
         self.index = 0
+        self.cursor = 0
 
     def current(self) -> Track | None:
         if not self.tracks:
@@ -36,19 +38,22 @@ class Playlist:
         if not self.tracks:
             return None
         self.index = (self.index + 1) % len(self.tracks)
+        self.cursor = self.index
         return self.current()
 
     def prev(self) -> Track | None:
         if not self.tracks:
             return None
         self.index = (self.index - 1) % len(self.tracks)
+        self.cursor = self.index
         return self.current()
 
-    def select(self, i: int) -> Track | None:
-        if not self.tracks or not (0 <= i < len(self.tracks)):
-            return None
-        self.index = i
-        return self.current()
+    def select(self, i: int) -> None:
+        if self.tracks and 0 <= i < len(self.tracks):
+            self.cursor = i
+
+    def play_cursor(self) -> None:
+        self.index = self.cursor
 
 
 def _read_tags(path: str) -> tuple[str, str, float]:
