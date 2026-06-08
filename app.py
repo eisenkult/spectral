@@ -21,6 +21,12 @@ from themes import THEMES, Theme
 import visualizers as vis
 
 
+MIN_HEIGHT_BOTH = 14   # show only one pane when screen height < this
+MIN_USABLE_WIDTH = 30  # show error when screen width < this
+MIN_USABLE_HEIGHT = 5  # show error when screen height < this
+WRAP_WIDTH = 70        # wrap controls/status bars when width < this
+
+
 def _list_drives() -> list[Path]:
     """Return mounted drive roots on Windows; empty list elsewhere."""
     if sys.platform != "win32":
@@ -97,7 +103,6 @@ class BrowserScreen(ModalScreen):
             return _list_drives()
         entries: list[Path | None] = []
         at_root = self._dir.parent == self._dir
-        # On Windows show ".." even at drive root so we can reach the drives list
         if not at_root or sys.platform == "win32":
             entries.append(None)  # ".." go-up sentinel
         try:
@@ -200,8 +205,8 @@ class BrowserScreen(ModalScreen):
 class PlaylistPane(Static):
     DEFAULT_CSS = """
     PlaylistPane {
-        width: 40%;
-        border: solid $primary;
+        width: 100%;
+        height: 2fr;
         overflow-y: scroll;
         padding: 0 1;
     }
@@ -212,8 +217,12 @@ class PlaylistPane(Static):
         self._playlist = playlist
         self._theme = theme
 
+    def on_mount(self) -> None:
+        self.styles.border = ("solid", self._theme.accent)
+
     def update_theme(self, theme: Theme) -> None:
         self._theme = theme
+        self.styles.border = ("solid", theme.accent)
         self.refresh()
 
     def render(self) -> RenderableType:
@@ -248,9 +257,8 @@ class PlaylistPane(Static):
 class VisualizerPane(Static):
     DEFAULT_CSS = """
     VisualizerPane {
-        width: 60%;
-        height: 100%;
-        border: solid $primary;
+        width: 100%;
+        height: 3fr;
     }
     """
 
@@ -261,8 +269,13 @@ class VisualizerPane(Static):
         self._mode_index = 0
         self._prev_frame: np.ndarray | None = None
 
+    def on_mount(self) -> None:
+        self.set_interval(1 / 30, self._tick)
+        self.styles.border = ("solid", self._theme.accent)
+
     def update_theme(self, theme: Theme) -> None:
         self._theme = theme
+        self.styles.border = ("solid", theme.accent)
 
     def cycle_mode(self) -> None:
         self._mode_index = (self._mode_index + 1) % len(vis.MODES)
@@ -272,9 +285,6 @@ class VisualizerPane(Static):
     @property
     def mode_name(self) -> str:
         return vis.MODE_NAMES[self._mode_index]
-
-    def on_mount(self) -> None:
-        self.set_interval(1 / 30, self._tick)
 
     def _tick(self) -> None:
         self.refresh()
@@ -309,39 +319,69 @@ class ControlsBar(Static):
     }
     """
 
-    def __init__(self) -> None:
-        super().__init__("")
+    _PLAYBACK = [
+        ("p", "prev"),
+        ("←/→", "±5s"),
+        ("Spc", "play/pause"),
+        ("n", "next"),
+        ("s", "stop"),
+    ]
+    _OTHER = [
+        ("o", "open"),
+        ("t", "theme"),
+        ("v", "viz"),
+        ("+/-", "vol"),
+        ("Tab", "toggle"),
+        ("q", "quit"),
+    ]
 
-    def on_mount(self) -> None:
+    def on_resize(self, event) -> None:
+        self.styles.height = 2 if event.size.width < WRAP_WIDTH else 1
+        self.refresh()
+
+    def render(self) -> RenderableType:
+        w = self.size.width or 80
         t = Text()
-        playback = [
-            ("p", "prev"),
-            ("←/→", "±5s"),
-            ("Spc", "play/pause"),
-            ("n", "next"),
-            ("s", "stop"),
-        ]
-        for key, label in playback:
-            t.append(f"[{key}]", style="bold")
-            t.append(f" {label}  ", style="dim")
-        t.append("│  ", style="dim")
-        for key, label in [("o", "open"), ("t", "theme"), ("v", "viz"), ("+/-", "vol")]:
-            t.append(f"[{key}]", style="bold")
-            t.append(f" {label}  ", style="dim")
-        self.update(t)
+        if w >= WRAP_WIDTH:
+            for key, label in self._PLAYBACK:
+                t.append(f"[{key}]", style="bold")
+                t.append(f" {label}  ", style="dim")
+            t.append("│  ", style="dim")
+            for key, label in self._OTHER:
+                t.append(f"[{key}]", style="bold")
+                t.append(f" {label}  ", style="dim")
+        else:
+            for key, label in self._PLAYBACK:
+                t.append(f"[{key}]", style="bold")
+                t.append(f" {label}  ", style="dim")
+            t.append("\n")
+            for key, label in self._OTHER:
+                t.append(f"[{key}]", style="bold")
+                t.append(f" {label}  ", style="dim")
+        return t
 
 
 class StatusBar(Static):
     DEFAULT_CSS = """
     StatusBar {
         height: 1;
-        dock: bottom;
         padding: 0 1;
     }
     """
 
     def __init__(self) -> None:
         super().__init__("")
+        self._state = "⏸"
+        self._title = ""
+        self._elapsed = 0.0
+        self._duration = 0.0
+        self._volume = 1.0
+        self._viz_name = ""
+        self._theme_name = ""
+
+    def on_resize(self, event) -> None:
+        self.styles.height = 2 if event.size.width < WRAP_WIDTH else 1
+        self.refresh()
 
     def update_status(
         self,
@@ -349,26 +389,54 @@ class StatusBar(Static):
         elapsed: float,
         duration: float,
         volume: float,
-        mode: str,
+        viz_name: str,
         theme_name: str,
         playing: bool,
     ) -> None:
-        state = "▶" if playing else "⏸"
-        elapsed_str = _fmt_time(elapsed)
-        duration_str = _fmt_time(duration)
-        vol_pct = int(volume * 100)
-        self.update(
-            f"{state} {title}  {elapsed_str}/{duration_str}  Vol:{vol_pct}%  [{mode}]  [{theme_name}]"
-        )
+        self._state = "▶" if playing else "⏸"
+        self._title = title
+        self._elapsed = elapsed
+        self._duration = duration
+        self._volume = volume
+        self._viz_name = viz_name
+        self._theme_name = theme_name
+        self.refresh()
+
+    def render(self) -> RenderableType:
+        w = self.size.width or 80
+        elapsed_str = _fmt_time(self._elapsed)
+        duration_str = _fmt_time(self._duration)
+        vol_pct = int(self._volume * 100)
+
+        main = f"{self._state} {self._title}  {elapsed_str}/{duration_str}  Vol:{vol_pct}%"
+        suffix = f"  | {self._theme_name}  {self._viz_name}"
+
+        t = Text()
+        if w >= WRAP_WIDTH:
+            t.append(main + suffix)
+        else:
+            t.append(main)
+            t.append("\n")
+            t.append(suffix.strip())
+        return t
+
+
+class ErrorOverlay(Static):
+    DEFAULT_CSS = """
+    ErrorOverlay {
+        height: 1fr;
+        width: 100%;
+        display: none;
+        color: #ff4444;
+        padding: 1 2;
+    }
+    """
 
 
 class SpectralApp(App):
     CSS = """
     Screen {
         background: #1a1025;
-    }
-    Horizontal {
-        height: 1fr;
     }
     """
 
@@ -378,15 +446,19 @@ class SpectralApp(App):
         self._engine = AudioEngine()
         self._playlist = Playlist()
         self._theme_index = 0
+        self._small_screen = False
+        self._show_playlist = True
 
     @property
     def _theme(self) -> Theme:
         return THEMES[self._theme_index]
 
     def compose(self) -> ComposeResult:
-        with Horizontal():
-            yield PlaylistPane(self._playlist, self._theme)
-            yield VisualizerPane(self._engine, self._theme)
+        yield PlaylistPane(self._playlist, self._theme)
+        yield VisualizerPane(self._engine, self._theme)
+        yield ErrorOverlay(
+            "Terminal too small — please resize  (music is still playing)  [q] quit"
+        )
         yield ControlsBar()
         yield StatusBar()
 
@@ -401,6 +473,41 @@ class SpectralApp(App):
             self.call_after_refresh(
                 lambda: self.push_screen(BrowserScreen(), self._on_browser_result)
             )
+        self.call_after_refresh(self._update_layout)
+
+    def on_resize(self, event) -> None:
+        self._update_layout(event.size.width, event.size.height)
+
+    def _update_layout(self, w: int | None = None, h: int | None = None) -> None:
+        if w is None:
+            w = self.screen.size.width
+        if h is None:
+            h = self.screen.size.height
+
+        try:
+            playlist_pane = self.query_one(PlaylistPane)
+            viz_pane = self.query_one(VisualizerPane)
+            error = self.query_one(ErrorOverlay)
+        except Exception:
+            return
+
+        too_small = w < MIN_USABLE_WIDTH or h < MIN_USABLE_HEIGHT
+
+        if too_small:
+            error.display = True
+            playlist_pane.display = False
+            viz_pane.display = False
+            return
+
+        error.display = False
+        self._small_screen = h < MIN_HEIGHT_BOTH
+
+        if self._small_screen:
+            playlist_pane.display = self._show_playlist
+            viz_pane.display = not self._show_playlist
+        else:
+            playlist_pane.display = True
+            viz_pane.display = True
 
     def _on_browser_result(self, result) -> None:
         if result is None:
@@ -436,7 +543,7 @@ class SpectralApp(App):
             elapsed=self._engine.elapsed,
             duration=self._engine.duration,
             volume=self._engine.volume,
-            mode=self.query_one(VisualizerPane).mode_name,
+            viz_name=self.query_one(VisualizerPane).mode_name,
             theme_name=self._theme.name,
             playing=self._engine.is_playing,
         )
@@ -446,7 +553,13 @@ class SpectralApp(App):
         playlist_pane = self.query_one(PlaylistPane)
         viz_pane = self.query_one(VisualizerPane)
 
-        if key in ("up", "k"):
+        if key == "tab":
+            event.prevent_default()
+            if self._small_screen:
+                self._show_playlist = not self._show_playlist
+                playlist_pane.display = self._show_playlist
+                viz_pane.display = not self._show_playlist
+        elif key in ("up", "k"):
             self._playlist.select(self._playlist.cursor - 1)
             playlist_pane.refresh()
         elif key in ("down", "j"):
