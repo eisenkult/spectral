@@ -1,0 +1,5 @@
+textual>=0.60
+numpy>=1.26
+sounddevice>=0.4.6
+miniaudio>=1.59
+mutagen>=1.47
