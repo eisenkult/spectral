@@ -99,8 +99,8 @@ class VisualizerPane(Static):
     def render(self) -> RenderableType:
         engine = self._engine
         theme = self._theme
-        w = self.size.width - 2  # subtract border
-        h = self.size.height - 2
+        w = self.size.width
+        h = self.size.height
 
         if w <= 0 or h <= 0:
             return Text("")
