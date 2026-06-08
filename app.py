@@ -62,6 +62,9 @@ class BrowserScreen(ModalScreen):
             yield Static("", id="browser_list")
             yield Static("", id="browser_hint")
 
+    def render(self) -> RenderableType:
+        return ""
+
     def on_mount(self) -> None:
         self._refresh()
 
