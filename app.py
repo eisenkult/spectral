@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 from rich.text import Text
 from rich.style import Style
 from rich.console import RenderableType
 from textual.app import App, ComposeResult
+from textual.screen import ModalScreen
 from textual.widgets import Static, Footer
-from textual.containers import Horizontal
+from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 
 from audio import AudioEngine
@@ -14,6 +17,142 @@ from dsp import compute_spectrum, smooth
 from playlist import Playlist
 from themes import THEMES, Theme
 import visualizers as vis
+
+
+class BrowserScreen(ModalScreen):
+    """File/folder browser for opening a folder or .m3u playlist."""
+
+    CSS = """
+    BrowserScreen {
+        align: center middle;
+    }
+    #browser {
+        width: 70%;
+        height: 80%;
+        border: solid $primary;
+        background: #1a1025;
+    }
+    #browser_path {
+        height: 1;
+        padding: 0 1;
+        background: #2a2035;
+        color: #ccbbff;
+    }
+    #browser_list {
+        height: 1fr;
+        padding: 0 1;
+    }
+    #browser_hint {
+        height: 1;
+        padding: 0 1;
+        background: #2a2035;
+        color: #666666;
+    }
+    """
+
+    def __init__(self, start_dir: str | None = None) -> None:
+        super().__init__()
+        self._dir = Path(start_dir).resolve() if start_dir else Path.home()
+        self._entries: list[Path | None] = []
+        self._cursor = 0
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="browser"):
+            yield Static("", id="browser_path")
+            yield Static("", id="browser_list")
+            yield Static("", id="browser_hint")
+
+    def on_mount(self) -> None:
+        self._refresh()
+
+    def _refresh(self) -> None:
+        self._entries = self._build_entries()
+        self._cursor = 0
+        self._render()
+
+    def _build_entries(self) -> list[Path | None]:
+        entries: list[Path | None] = []
+        if self._dir.parent != self._dir:
+            entries.append(None)  # ".." go-up sentinel
+        try:
+            items = sorted(
+                self._dir.iterdir(),
+                key=lambda p: (not p.is_dir(), p.name.lower()),
+            )
+            for p in items:
+                if p.name.startswith("."):
+                    continue
+                if p.is_dir() or (p.is_file() and p.suffix.lower() == ".m3u"):
+                    entries.append(p)
+        except PermissionError:
+            pass
+        return entries
+
+    def _render(self) -> None:
+        self.query_one("#browser_path", Static).update(f" {self._dir}")
+
+        list_widget = self.query_one("#browser_list", Static)
+        h = list_widget.size.height or 20
+
+        text = Text()
+        if not self._entries:
+            text.append("  (empty)", style=Style(color="#555555"))
+        else:
+            total = len(self._entries)
+            start = max(0, min(self._cursor - h // 2, total - h))
+            for i in range(start, min(start + h, total)):
+                entry = self._entries[i]
+                is_cursor = i == self._cursor
+                if entry is None:
+                    label, color = "../", "#888888"
+                elif entry.is_dir():
+                    label, color = f"{entry.name}/", "#bb99ff"
+                else:
+                    label, color = entry.name, "#88ffcc"
+                if is_cursor:
+                    text.append(
+                        f"▶ {label}\n",
+                        style=Style(color="#ffffff", bgcolor="#3a2060", bold=True),
+                    )
+                else:
+                    text.append(f"  {label}\n", style=Style(color=color))
+
+        list_widget.update(text)
+        self.query_one("#browser_hint", Static).update(
+            "  [↑↓] move  [Enter] open  [o] use this folder  [←/Bksp] up  [Esc] cancel"
+        )
+
+    def on_key(self, event) -> None:
+        key = event.key
+        n = len(self._entries)
+        if key in ("up", "k"):
+            if self._cursor > 0:
+                self._cursor -= 1
+                self._render()
+        elif key in ("down", "j"):
+            if self._cursor < n - 1:
+                self._cursor += 1
+                self._render()
+        elif key == "enter":
+            if not self._entries:
+                return
+            entry = self._entries[self._cursor]
+            if entry is None:
+                self._dir = self._dir.parent
+                self._refresh()
+            elif entry.is_dir():
+                self._dir = entry
+                self._refresh()
+            else:
+                self.dismiss(("m3u", str(entry)))
+        elif key in ("left", "backspace"):
+            if self._dir.parent != self._dir:
+                self._dir = self._dir.parent
+                self._refresh()
+        elif key == "o":
+            self.dismiss(("folder", str(self._dir)))
+        elif key == "escape":
+            self.dismiss(None)
 
 
 class PlaylistPane(Static):
@@ -39,7 +178,10 @@ class PlaylistPane(Static):
         playlist = self._playlist
         theme = self._theme
         if not playlist.tracks:
-            return Text("No MP3 files found.", style=Style(color=theme.fg))
+            return Text(
+                "No tracks loaded — press [o] to open a folder or playlist.",
+                style=Style(color=theme.fg),
+            )
 
         text = Text()
         for i, track in enumerate(playlist.tracks):
@@ -50,7 +192,6 @@ class PlaylistPane(Static):
             if track.artist:
                 line += f" — {track.artist}"
             duration_str = _fmt_time(track.duration)
-            # Pad title to leave room for duration
             line = line[:50] + f"  {duration_str}"
 
             if is_cursor:
@@ -109,7 +250,6 @@ class VisualizerPane(Static):
         render_fn = vis.MODES[self._mode_index]
 
         if self._mode_index == 0:
-            # Spectrum mode: run DSP
             frame = compute_spectrum(window, n_bars=w, sample_rate=engine.sample_rate)
             frame = smooth(self._prev_frame, frame)
             self._prev_frame = frame
@@ -143,7 +283,7 @@ class ControlsBar(Static):
             t.append(f"[{key}]", style="bold")
             t.append(f" {label}  ", style="dim")
         t.append("│  ", style="dim")
-        for key, label in [("t", "theme"), ("v", "viz"), ("+/-", "vol")]:
+        for key, label in [("o", "open"), ("t", "theme"), ("v", "viz"), ("+/-", "vol")]:
             t.append(f"[{key}]", style="bold")
             t.append(f" {label}  ", style="dim")
         self.update(t)
@@ -190,7 +330,7 @@ class SpectralApp(App):
     }
     """
 
-    def __init__(self, folder: str) -> None:
+    def __init__(self, folder: str | None = None) -> None:
         super().__init__()
         self._folder = folder
         self._engine = AudioEngine()
@@ -209,10 +349,28 @@ class SpectralApp(App):
         yield StatusBar()
 
     def on_mount(self) -> None:
-        self._playlist.scan(self._folder)
-        self.query_one(PlaylistPane).refresh()
         self.set_interval(0.5, self._poll_status)
         self.set_interval(0.1, self._poll_finished)
+        if self._folder:
+            self._playlist.scan(self._folder)
+            self.query_one(PlaylistPane).refresh()
+            self._play_current()
+        else:
+            self.call_after_refresh(
+                lambda: self.push_screen(BrowserScreen(), self._on_browser_result)
+            )
+
+    def _on_browser_result(self, result) -> None:
+        if result is None:
+            return
+        kind, path = result
+        self._engine.stop()
+        if kind == "folder":
+            self._folder = path
+            self._playlist.scan(path)
+        else:
+            self._playlist.load_m3u(path)
+        self.query_one(PlaylistPane).refresh()
         self._play_current()
 
     def _play_current(self) -> None:
@@ -281,6 +439,9 @@ class SpectralApp(App):
             self.set_background(theme.bg)
             playlist_pane.update_theme(theme)
             viz_pane.update_theme(theme)
+        elif key == "o":
+            start = self._folder or str(Path.home())
+            self.push_screen(BrowserScreen(start), self._on_browser_result)
         elif key == "q":
             self._engine.stop()
             self.exit()
