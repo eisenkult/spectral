@@ -1,15 +1,8 @@
 # Spectral
 
-A minimalist terminal MP3 player with a real-time audio visualizer. Split-pane TUI: scrollable playlist on the left, frequency visualizer on the right. Three themes, three visualizer modes, all keyboard-driven.
+A minimalist terminal MP3 player with a real-time audio visualizer. Split-pane TUI: scrollable playlist on top, visualizer on the bottom. Three themes, four visualizer modes, all keyboard-driven.
 
-```
-┌─ Playlist ──────────────┬─ Visualizer ───────────────────────────┐
-│ ▶ Nightcall — Kavinsky  │  ▁▁▂▃▅▇█▇▅▄▃▂▂▁▁▁▂▃▄▅▆▇█▇▅▃▂▁▁▁▂▃▄▅▆ │
-│   Bicycle — Daft Punk   │  ▁▁▁▂▃▄▅▆▇█▇▅▄▃▂▁▁▁▂▃▄▅▇█▇▅▄▃▂▁▁▁▂▃▄ │
-│   Giorgio — Moroder     │  ▁▂▃▄▅▆▇█▇▆▅▄▃▂▁▁▁▂▃▄▅▆▇█▇▆▄▃▂▁▁▁▂▃▄ │
-└─────────────────────────┴────────────────────────────────────────┘
-▶ Nightcall  0:42/4:18  Vol:80%  [Spectrum]  [Synthwave]
-```
+<img width="1246" height="696" alt="image" src="https://github.com/user-attachments/assets/95ed6253-a362-4e97-b599-80a9c9ed3392" />
 
 ## Requirements
 
@@ -22,13 +15,19 @@ A minimalist terminal MP3 player with a real-time audio visualizer. Split-pane T
 ```bash
 # 1. Create an isolated environment
 python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+source .venv/bin/activate
+# Windows: .venv\Scripts\activate
 
 # 2. Install dependencies
 pip install -r requirements.txt
 
 # 3. Run, pointing at a folder of MP3s
 python main.py ~/Music
+```
+## Quick Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/eisenkult/spectral/main/setup.sh | bash
 ```
 
 ## Controls
@@ -39,6 +38,7 @@ python main.py ~/Music
 | `Enter` | Play selected track |
 | `Space` | Play / pause |
 | `n` / `p` | Next / previous track |
+| `o` | Open folder/.m3u |
 | `←` / `→` | Seek −5s / +5s |
 | `+` / `-` | Volume up / down |
 | `v` | Cycle visualizer mode |
@@ -50,6 +50,7 @@ python main.py ~/Music
 - **Spectrum** — frequency domain bars with sub-row block glyph resolution
 - **Oscilloscope** — raw waveform plotted left to right
 - **VU Meter** — per-channel L/R amplitude with peak redline
+- **Matrix** — the video translators work for the construct program
 
 ## Themes
 
