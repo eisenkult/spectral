@@ -66,7 +66,7 @@ class VisualizerPane(Static):
     DEFAULT_CSS = """
     VisualizerPane {
         width: 60%;
-        height: 1fr;
+        height: 100%;
         border: solid $primary;
     }
     """
@@ -84,6 +84,7 @@ class VisualizerPane(Static):
     def cycle_mode(self) -> None:
         self._mode_index = (self._mode_index + 1) % len(vis.MODES)
         self._prev_frame = None
+        self.refresh()
 
     @property
     def mode_name(self) -> str:
