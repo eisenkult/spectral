@@ -116,6 +116,37 @@ class VisualizerPane(Static):
         return render_fn(frame, w, h, theme)
 
 
+class ControlsBar(Static):
+    DEFAULT_CSS = """
+    ControlsBar {
+        height: 1;
+        dock: bottom;
+        padding: 0 1;
+    }
+    """
+
+    def __init__(self) -> None:
+        super().__init__("")
+
+    def on_mount(self) -> None:
+        t = Text()
+        playback = [
+            ("p", "prev"),
+            ("←/→", "±5s"),
+            ("Spc", "play/pause"),
+            ("n", "next"),
+            ("s", "stop"),
+        ]
+        for key, label in playback:
+            t.append(f"[{key}]", style="bold")
+            t.append(f" {label}  ", style="dim")
+        t.append("│  ", style="dim")
+        for key, label in [("t", "theme"), ("v", "viz"), ("+/-", "vol")]:
+            t.append(f"[{key}]", style="bold")
+            t.append(f" {label}  ", style="dim")
+        self.update(t)
+
+
 class StatusBar(Static):
     DEFAULT_CSS = """
     StatusBar {
@@ -172,6 +203,7 @@ class SpectralApp(App):
         with Horizontal():
             yield PlaylistPane(self._playlist, self._theme)
             yield VisualizerPane(self._engine, self._theme)
+        yield ControlsBar()
         yield StatusBar()
 
     def on_mount(self) -> None:
@@ -224,6 +256,8 @@ class SpectralApp(App):
             self._play_current()
         elif key == "space":
             self._engine.toggle()
+        elif key == "s":
+            self._engine.stop()
         elif key == "n":
             self._playlist.next()
             self._play_current()
