@@ -21,6 +21,8 @@ from themes import THEMES, Theme
 import visualizers as vis
 
 
+_USE_FOLDER = object()  # sentinel: "use this folder" entry in the browser
+
 MIN_HEIGHT_BOTH = 14   # show only one pane when screen height < this
 MIN_USABLE_WIDTH = 30  # show error when screen width < this
 MIN_USABLE_HEIGHT = 5  # show error when screen height < this
@@ -98,13 +100,14 @@ class BrowserScreen(ModalScreen):
         self._cursor = 0
         self._update_display()
 
-    def _build_entries(self) -> list[Path | None]:
+    def _build_entries(self) -> list[Path | None | object]:
         if self._showing_drives:
             return _list_drives()
-        entries: list[Path | None] = []
+        entries: list[Path | None | object] = []
         at_root = self._dir.parent == self._dir
         if not at_root or sys.platform == "win32":
             entries.append(None)  # ".." go-up sentinel
+        has_mp3 = False
         try:
             items = sorted(
                 self._dir.iterdir(),
@@ -113,10 +116,14 @@ class BrowserScreen(ModalScreen):
             for p in items:
                 if p.name.startswith("."):
                     continue
-                if p.is_dir() or (p.is_file() and p.suffix.lower() == ".m3u"):
+                if p.suffix.lower() == ".mp3":
+                    has_mp3 = True
+                elif p.is_dir() or p.suffix.lower() == ".m3u":
                     entries.append(p)
         except PermissionError:
             pass
+        if has_mp3:
+            entries.insert(0, _USE_FOLDER)
         return entries
 
     def _update_display(self) -> None:
@@ -135,7 +142,9 @@ class BrowserScreen(ModalScreen):
             for i in range(start, min(start + h, total)):
                 entry = self._entries[i]
                 is_cursor = i == self._cursor
-                if entry is None:
+                if entry is _USE_FOLDER:
+                    label, color = "use this folder", "#88ffcc"
+                elif entry is None:
                     label, color = "../", "#888888"
                 elif self._showing_drives:
                     label, color = str(entry), "#bb99ff"
@@ -155,7 +164,7 @@ class BrowserScreen(ModalScreen):
         hint = (
             "  [↑↓] move  [Enter] open drive  [Esc] cancel"
             if self._showing_drives
-            else "  [↑↓] move  [Enter] open  [o] use this folder  [←/Bksp] up  [Esc] cancel"
+            else "  [↑↓] move  [Enter] open/use folder  [←/Bksp] up  [Esc] cancel"
         )
         self.query_one("#browser_hint", Static).update(hint)
 
@@ -171,6 +180,7 @@ class BrowserScreen(ModalScreen):
             self._refresh()
 
     def on_key(self, event) -> None:
+        event.stop()  # never let keys bleed through to the main app
         key = event.key
         n = len(self._entries)
         if key in ("up", "k"):
@@ -185,7 +195,9 @@ class BrowserScreen(ModalScreen):
             if not self._entries:
                 return
             entry = self._entries[self._cursor]
-            if entry is None:
+            if entry is _USE_FOLDER:
+                self.dismiss(("folder", str(self._dir)))
+            elif entry is None:
                 self._go_up()
             elif self._showing_drives or entry.is_dir():
                 self._dir = entry
@@ -207,7 +219,7 @@ class PlaylistPane(Static):
     PlaylistPane {
         width: 100%;
         height: 2fr;
-        overflow-y: scroll;
+        overflow: hidden;
         padding: 0 1;
     }
     """
@@ -234,10 +246,16 @@ class PlaylistPane(Static):
                 style=Style(color=theme.fg),
             )
 
+        h = self.size.height or 20
+        total = len(playlist.tracks)
+        cursor = playlist.cursor
+        start = max(0, min(cursor - h // 2, total - h))
+
         text = Text()
-        for i, track in enumerate(playlist.tracks):
+        for i in range(start, min(start + h, total)):
+            track = playlist.tracks[i]
             is_playing = i == playlist.index
-            is_cursor = i == playlist.cursor
+            is_cursor = i == cursor
             prefix = "▶ " if is_playing else "  "
             line = f"{prefix}{track.title}"
             if track.artist:
@@ -302,7 +320,7 @@ class VisualizerPane(Static):
         render_fn = vis.MODES[self._mode_index]
 
         if self._mode_index == 0:
-            frame = compute_spectrum(window, n_bars=w, sample_rate=engine.sample_rate)
+            frame = compute_spectrum(window, n_bars=max(1, w // 2), sample_rate=engine.sample_rate)
             frame = smooth(self._prev_frame, frame)
             self._prev_frame = frame
         else:
