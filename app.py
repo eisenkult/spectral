@@ -120,7 +120,6 @@ class ControlsBar(Static):
     DEFAULT_CSS = """
     ControlsBar {
         height: 1;
-        dock: bottom;
         padding: 0 1;
     }
     """
