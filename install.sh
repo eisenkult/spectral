@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
-# Spectral — user-space installer (no sudo required)
+# Spectral — user-space installer for Linux / macOS / Termux (no sudo required)
+# Windows users: run install.ps1 instead (see below)
 #
-# One-liner install:
+# One-liner install (Linux / macOS / Termux):
 #   curl -sSL https://raw.githubusercontent.com/eisenkult/spectral/main/install.sh | bash
+#
+# One-liner install (Windows PowerShell):
+#   irm https://raw.githubusercontent.com/eisenkult/spectral/main/install.ps1 | iex
 #
 # After install, launch from the install directory:
 #   cd ~/.local/share/spectral && .venv/bin/python main.py ~/Music
