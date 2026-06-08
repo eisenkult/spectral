@@ -24,6 +24,11 @@ pip install -r requirements.txt
 # 3. Run, pointing at a folder of MP3s
 python main.py ~/Music
 ```
+## Quick Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/eisenkult/spectral/main/setup.sh | bash
+```
 
 ## Controls
 
